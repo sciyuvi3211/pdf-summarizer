@@ -1,4 +1,4 @@
-streamlit==1.32.0
-pypdf==4.2.0
+streamlit
+PyPDF2==3.0.1
 groq
 python-dotenv
