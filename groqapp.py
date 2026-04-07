@@ -1,5 +1,5 @@
 import streamlit as st
-from pypdf import PdfReader
+import PyPDF2
 from groq import Groq
 from dotenv import load_dotenv
 import os
@@ -64,7 +64,7 @@ st.title("📄 AI PDF Summarizer")
 # 📄 Function: Extract text
 def extract_text(file):
     try:
-        reader = PdfReader(file)
+        reader = PyPDF2.PdfReader(file)
         text = ""
         for page in reader.pages:
             content = page.extract_text()
