@@ -19,7 +19,7 @@ API_KEY = os.getenv("GROQ_API_KEY")
 
 # 🔥 Firebase init
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase_key.json")
+    cred = credentials.Certificate(dict(st.secrets["firebase"]))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
