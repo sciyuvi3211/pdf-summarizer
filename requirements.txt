@@ -1,4 +1,6 @@
 streamlit
-pdfplumber
 groq
 python-dotenv
+PyMuPDF
+firebase-admin
+streamlit-cookies-manager
