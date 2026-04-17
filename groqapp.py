@@ -24,7 +24,12 @@ except ValueError:
     try:
         cred = credentials.Certificate("firebase_key.json")
     except:
-        cred = credentials.Certificate(st.secrets["firebase"])
+        import json
+
+        cred_dict = json.loads(json.dumps(st.secrets["firebase"]))
+        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+
+        cred = credentials.Certificate(cred_dict)
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
