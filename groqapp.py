@@ -17,9 +17,14 @@ import uuid
 load_dotenv("secure.env")
 API_KEY = os.getenv("GROQ_API_KEY")
 
-# 🔥 Firebase init
-if not firebase_admin._apps:
-    cred = credentials.Certificate(dict(st.secrets["firebase"]))
+# 🔥 Firebase init (SAFE)
+try:
+    firebase_admin.get_app()
+except ValueError:
+    try:
+        cred = credentials.Certificate("firebase_key.json")
+    except:
+        cred = credentials.Certificate(st.secrets["firebase"])
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
@@ -38,18 +43,44 @@ if "user_id" not in cookies:
 user_id = cookies["user_id"]
 
 # 👤 Get user data
-def get_user_data(user_id):
-    doc_ref = db.collection("users").document(user_id)
+def get_user(email):
+    doc_ref = db.collection("users").document(email)
     doc = doc_ref.get()
 
     if doc.exists:
         return doc.to_dict()
     else:
-        data = {"usage": 0, "plan": "free"}
-        doc_ref.set(data)
-        return data
+        user_data = {
+            "email": email,
+            "plan": "free",
+            "usage": 0,
+            "ref_rewarded": False
+        }
+        doc_ref.set(user_data)
+        return user_data
 
-user = get_user_data(user_id)
+user = get_user(user_id)
+
+# 🎯 REFERRAL SYSTEM (ONE-TIME)
+query_params = st.query_params
+ref_id = query_params.get("ref", None)
+
+if ref_id and ref_id != user_id:
+    ref_doc = db.collection("users").document(ref_id).get()
+    current_user_doc = db.collection("users").document(user_id).get()
+
+    if ref_doc.exists and current_user_doc.exists:
+        ref_data = ref_doc.to_dict()
+        current_user_data = current_user_doc.to_dict()
+
+        if (
+            not ref_data.get("ref_rewarded", False)
+            and current_user_data.get("usage", 0) == 0
+        ):
+            db.collection("users").document(ref_id).update({
+                "usage": max(ref_data["usage"] - 2, 0),
+                "ref_rewarded": True
+            })
 
 # 🎨 Page config
 st.set_page_config(page_title="AI PDF Summarizer")
@@ -103,10 +134,9 @@ def summarize(text):
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""
+            messages=[{
+                "role": "user",
+                "content": f"""
 Summarize the following PDF content clearly and accurately.
 
 Only use the given text.
@@ -115,8 +145,7 @@ If the content is unclear or incomplete, say "Content unclear".
 Text:
 {text}
 """
-                }
-            ]
+            }]
         )
 
         return response.choices[0].message.content
@@ -131,10 +160,9 @@ def answer_question(text, question):
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""
+            messages=[{
+                "role": "user",
+                "content": f"""
 Answer the question ONLY using the text below.
 
 If the answer is not in the text, say "Not found in document".
@@ -145,8 +173,7 @@ Text:
 Question:
 {question}
 """
-                }
-            ]
+            }]
         )
 
         return response.choices[0].message.content
@@ -165,13 +192,21 @@ if "summary" not in st.session_state:
 # 🚀 MAIN LOGIC
 if uploaded_file:
 
-    # 🚫 LIMIT CHECK
-    if user["usage"] >= 3 and user["plan"] == "free":
+    # 🚫 USAGE LIMIT
+    if user["plan"] == "free" and user["usage"] >= 3:
         st.error("🚫 Free limit reached. Upgrade to continue.")
 
-        st.markdown("### 🚀 Upgrade to Pro")
-        st.markdown("📩 Contact: **your-email@gmail.com**")
-        st.markdown("Send your login email to get Pro access.")
+        referral_link = f"https://your-app-url.streamlit.app/?ref={user_id}"
+
+        st.markdown("### 🎁 Get 2 Extra Uses")
+        st.code(referral_link)
+        st.markdown("📤 Share this link with a friend to unlock +2 uses!")
+
+        st.markdown(f"""
+        <a href="https://wa.me/?text=Check this AI PDF tool: {referral_link}" target="_blank">
+        📲 Share on WhatsApp
+        </a>
+        """, unsafe_allow_html=True)
 
         st.stop()
 
@@ -186,34 +221,24 @@ if uploaded_file:
         st.error("❌ No readable text found in PDF")
 
     else:
-        processed_text = clean_text(text)
-        processed_text = processed_text[:6000]
+        processed_text = clean_text(text)[:6000]
 
-        # 👀 Preview
         with st.expander("👀 Preview Extracted Text"):
             st.write(processed_text[:500])
 
-        # ✨ Generate Summary
         if st.button("✨ Generate Summary", key="gen_btn"):
             with st.spinner("Generating summary..."):
                 st.session_state.summary = summarize(processed_text)
 
-                # 📊 UPDATE USAGE
                 db.collection("users").document(user_id).update({
                     "usage": user["usage"] + 1
                 })
 
-                # Refresh user data
-                user = get_user_data(user_id)
-
-        # 🔄 Regenerate
         if st.button("🔄 Regenerate Summary", key="regen_btn"):
             with st.spinner("Regenerating..."):
                 st.session_state.summary = summarize(processed_text)
 
-        # 📌 SHOW SUMMARY + CHAT
         if st.session_state.summary:
-
             st.subheader("📌 Summary")
             st.write(st.session_state.summary)
 
@@ -225,7 +250,6 @@ if uploaded_file:
                 file_name="summary.txt"
             )
 
-            # 💬 TALK TO PDF
             st.markdown("### 💬 Talk to your PDF")
 
             question = st.text_input("Ask something about the PDF")
@@ -239,10 +263,14 @@ if uploaded_file:
                 else:
                     st.warning("Please enter a question")
 
-            # 🚀 UPGRADE SECTION
-            st.markdown("### 🚀 Upgrade to Pro")
-            st.markdown("📩 Contact: **yuvrajwork0032@gmail.com**")
-            st.markdown("Send your email to unlock unlimited access.")
+# 🚀 ALWAYS SHOW UPGRADE (ADDED)
+st.markdown("---")
+st.markdown("### 🚀 Upgrade to Pro")
+st.markdown("""
+Want unlimited usage and full access?
+
+📩 Contact: **yuvrajwork0032@gmail.com**
+""")
 
 # Footer
 st.markdown("---")
